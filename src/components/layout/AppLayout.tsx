@@ -9,7 +9,6 @@ import {
   LogOut,
   Menu,
   X,
-  GraduationCap,
   ShieldCheck,
   Clock
 } from 'lucide-react';
@@ -69,8 +68,8 @@ export function AppLayout({ children }: AppLayoutProps) {
           {/* Logo */}
           <div className="flex h-16 items-center justify-between border-b-2 border-border px-4">
             <Link to="/" className="flex items-center gap-2">
-              <GraduationCap className="h-8 w-8" />
-              <span className="text-xl font-bold tracking-tight">SHULE POS</span>
+              <img src="/royal-brook-logo.jpg" alt="Royal Brook" className="h-8 w-8 rounded object-cover" />
+              <span className="text-xl font-bold tracking-tight">Royal Brook Kindergarten</span>
             </Link>
             <button
               className="sm:hidden"
@@ -131,8 +130,8 @@ export function AppLayout({ children }: AppLayoutProps) {
             <Menu className="h-6 w-6" />
           </button>
           <div className="flex items-center gap-2">
-            <GraduationCap className="h-6 w-6" />
-            <span className="text-lg font-bold">SHULE POS</span>
+            <img src="/royal-brook-logo.jpg" alt="Royal Brook" className="h-6 w-6 rounded object-cover" />
+            <span className="text-lg font-bold">Royal Brook Kindergarten</span>
           </div>
         </header>
 

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { GraduationCap, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -19,10 +19,10 @@ export function AuthLayout({ children, title, subtitle }: AuthLayoutProps) {
       <div className="w-full max-w-md space-y-8">
         {/* Header */}
         <div className="text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center border-2 border-border bg-primary">
-            <GraduationCap className="h-10 w-10 text-primary-foreground" />
+          <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center border-2 border-border bg-primary rounded-lg overflow-hidden">
+            <img src="/royal-brook-logo.jpg" alt="Royal Brook Kindergarten" className="h-full w-full object-cover" />
           </div>
-          <h1 className="text-3xl font-bold tracking-tight">SHULE POS</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Royal Brook Kindergarten</h1>
           <p className="mt-2 text-muted-foreground">{subtitle}</p>
         </div>
 
