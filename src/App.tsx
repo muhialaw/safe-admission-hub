@@ -10,7 +10,6 @@ import Dashboard from "./pages/Dashboard";
 import Admissions from "./pages/Admissions";
 import Students from "./pages/Students";
 import Payments from "./pages/Payments";
-import Settings from "./pages/Settings";
 import Admin from "./pages/Admin";
 import PendingSync from "./pages/PendingSync";
 import NotFound from "./pages/NotFound";
@@ -78,14 +77,6 @@ const App = () => (
               element={
                 <ProtectedRoute>
                   <Payments />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/settings"
-              element={
-                <ProtectedRoute>
-                  <Settings />
                 </ProtectedRoute>
               }
             />

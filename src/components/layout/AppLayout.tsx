@@ -5,17 +5,19 @@ import {
   UserPlus, 
   Users, 
   CreditCard, 
-  Settings, 
   LogOut,
   Menu,
   X,
   ShieldCheck,
-  Clock
+  Clock,
+  RotateCcw
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 import { OfflineIndicator } from '@/components/OfflineIndicator';
+import { useCacheManager } from '@/hooks/useCacheManager';
+import { toast } from 'sonner';
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -27,7 +29,6 @@ const navigation = [
   { name: 'Students', href: '/students', icon: Users },
   { name: 'Payments', href: '/payments', icon: CreditCard },
   { name: 'Pending Sync', href: '/pending-sync', icon: Clock },
-  { name: 'Settings', href: '/settings', icon: Settings },
 ];
 
 const adminNavigation = [
@@ -35,16 +36,29 @@ const adminNavigation = [
 ];
 
 export function AppLayout({ children }: AppLayoutProps) {
-  const { profile, role, signOut, isAdmin } = useAuth();
+  const { profile, role, signOut, isAdmin, user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { clearAll } = useCacheManager();
 
   const allNavigation = isAdmin ? [...navigation, ...adminNavigation] : navigation;
 
   const handleSignOut = async () => {
     await signOut();
     navigate('/login');
+  };
+
+  const handleResetCache = () => {
+    clearAll();
+    toast.success('Cache cleared!', {
+      description: 'Non-essential data cleared. Offline data preserved for reliability.',
+    });
+    console.log('[AppLayout] User clicked reset cache button - non-essential cache cleared');
+    // Reload to get fresh data from API
+    setTimeout(() => {
+      window.location.reload();
+    }, 500);
   };
 
   return (
@@ -110,14 +124,26 @@ export function AppLayout({ children }: AppLayoutProps) {
                 {role}
               </p>
             </div>
-            <Button
-              variant="outline"
-              className="w-full justify-start gap-2"
-              onClick={handleSignOut}
-            >
-              <LogOut className="h-4 w-4" />
-              Sign Out
-            </Button>
+            <div className="space-y-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full justify-start gap-2 text-xs"
+                onClick={handleResetCache}
+                title="Clear all cached data and refresh on next load"
+              >
+                <RotateCcw className="h-3 w-3" />
+                Reset Cache
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full justify-start gap-2"
+                onClick={handleSignOut}
+              >
+                <LogOut className="h-4 w-4" />
+                Sign Out
+              </Button>
+            </div>
           </div>
         </div>
       </aside>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Loader2, Plus, Trash2 } from 'lucide-react';
+import { Loader2, Plus, Trash2, GripVertical, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { supabase } from '@/integrations/supabase/client';
 import { GradeTerm } from '@/types/database';
 import { toast } from 'sonner';
+import { cachedDataService } from '@/lib/cached-data-service';
 
 interface GradeTermsManagerProps {
   gradeId: string;
@@ -19,6 +20,9 @@ export function GradeTermsManager({ gradeId, gradeName, academicYear = new Date(
   const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [draggedTerm, setDraggedTerm] = useState<GradeTerm | null>(null);
+  const [isUpdatingOrder, setIsUpdatingOrder] = useState(false);
+  const [editingTerm, setEditingTerm] = useState<GradeTerm | null>(null);
   const [formData, setFormData] = useState({
     term_name: '',
     term_order: 1,
@@ -33,16 +37,8 @@ export function GradeTermsManager({ gradeId, gradeName, academicYear = new Date(
 
   const fetchTerms = async () => {
     try {
-      const { data, error } = await supabase
-        .from('grade_terms')
-        .select('*')
-        .eq('grade_id', gradeId)
-        .eq('academic_year', academicYear)
-        .eq('is_active', true)
-        .order('term_order');
-
-      if (error) throw error;
-      setTerms(data as unknown as GradeTerm[]);
+      const gradeTerms = await cachedDataService.getGradeTermsByGrade(gradeId, academicYear);
+      setTerms(gradeTerms);
     } catch (error) {
       console.error('Error fetching grade terms:', error);
       toast.error('Failed to load terms');
@@ -70,43 +66,58 @@ export function GradeTermsManager({ gradeId, gradeName, academicYear = new Date(
         return;
       }
 
-      // Check if term already exists
-      const { data: existing } = await supabase
-        .from('grade_terms')
-        .select('id')
-        .eq('grade_id', gradeId)
-        .eq('term_name', formData.term_name.trim())
-        .eq('academic_year', academicYear)
-        .maybeSingle();
+      if (editingTerm) {
+        // Update existing term
+        const { error } = await supabase
+          .from('grade_terms')
+          .update({
+            term_name: formData.term_name.trim(),
+            fee_amount: feeAmount,
+          })
+          .eq('id', editingTerm.id);
 
-      if (existing) {
-        toast.error('This term already exists for this academic year');
-        setIsSubmitting(false);
-        return;
+        if (error) throw error;
+        toast.success(`${formData.term_name} updated successfully`);
+      } else {
+        // Check if term already exists
+        const { data: existing } = await supabase
+          .from('grade_terms')
+          .select('id')
+          .eq('grade_id', gradeId)
+          .eq('term_name', formData.term_name.trim())
+          .eq('academic_year', academicYear)
+          .maybeSingle();
+
+        if (existing) {
+          toast.error('This term already exists for this academic year');
+          setIsSubmitting(false);
+          return;
+        }
+
+        const { error } = await supabase.from('grade_terms').insert({
+          grade_id: gradeId,
+          term_name: formData.term_name.trim(),
+          term_order: formData.term_order,
+          fee_amount: feeAmount,
+          academic_year: academicYear,
+          is_active: true,
+        });
+
+        if (error) throw error;
+        toast.success(`${formData.term_name} added successfully`);
       }
 
-      const { error } = await supabase.from('grade_terms').insert({
-        grade_id: gradeId,
-        term_name: formData.term_name.trim(),
-        term_order: formData.term_order,
-        fee_amount: feeAmount,
-        academic_year: academicYear,
-        is_active: true,
-      });
-
-      if (error) throw error;
-
-      toast.success(`${formData.term_name} added successfully`);
       setFormData({
         term_name: '',
         term_order: terms.length + 1,
         fee_amount: '',
       });
+      setEditingTerm(null);
       setIsDialogOpen(false);
       fetchTerms();
     } catch (error) {
-      console.error('Error creating term:', error);
-      toast.error('Failed to add term');
+      console.error('Error saving term:', error);
+      toast.error('Failed to save term');
     } finally {
       setIsSubmitting(false);
     }
@@ -128,6 +139,73 @@ export function GradeTermsManager({ gradeId, gradeName, academicYear = new Date(
       console.error('Error deleting term:', error);
       toast.error('Failed to delete term');
     }
+  };
+
+  const handleDragStart = (term: GradeTerm) => {
+    setDraggedTerm(term);
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLTableRowElement>) => {
+    e.preventDefault();
+    e.currentTarget.classList.add('bg-muted/50');
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLTableRowElement>) => {
+    e.currentTarget.classList.remove('bg-muted/50');
+  };
+
+  const handleDrop = async (e: React.DragEvent<HTMLTableRowElement>, targetTerm: GradeTerm) => {
+    e.preventDefault();
+    e.currentTarget.classList.remove('bg-muted/50');
+
+    if (!draggedTerm || draggedTerm.id === targetTerm.id) return;
+
+    setIsUpdatingOrder(true);
+    try {
+      // Swap the order values
+      const draggedOrder = draggedTerm.term_order;
+      const targetOrder = targetTerm.term_order;
+
+      // Update both terms
+      await Promise.all([
+        supabase
+          .from('grade_terms')
+          .update({ term_order: targetOrder })
+          .eq('id', draggedTerm.id),
+        supabase
+          .from('grade_terms')
+          .update({ term_order: draggedOrder })
+          .eq('id', targetTerm.id),
+      ]);
+
+      toast.success('Term order updated');
+      fetchTerms();
+    } catch (error) {
+      console.error('Error updating term order:', error);
+      toast.error('Failed to update term order');
+    } finally {
+      setIsUpdatingOrder(false);
+      setDraggedTerm(null);
+    }
+  };
+
+  const openEditTerm = (term: GradeTerm) => {
+    setEditingTerm(term);
+    setFormData({
+      term_name: term.term_name,
+      term_order: term.term_order,
+      fee_amount: term.fee_amount.toString(),
+    });
+    setIsDialogOpen(true);
+  };
+
+  const resetForm = () => {
+    setFormData({
+      term_name: '',
+      term_order: terms.length + 1,
+      fee_amount: '',
+    });
+    setEditingTerm(null);
   };
 
   const formatCurrency = (amount: number) => {
@@ -154,8 +232,8 @@ export function GradeTermsManager({ gradeId, gradeName, academicYear = new Date(
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Add Term for {gradeName}</DialogTitle>
-              <DialogDescription>Define fee amount for a specific term</DialogDescription>
+              <DialogTitle>{editingTerm ? `Edit ${editingTerm.term_name}` : `Add Term for ${gradeName}`}</DialogTitle>
+              <DialogDescription>{editingTerm ? 'Update term details and fee amount' : 'Define fee amount for a specific term'}</DialogDescription>
             </DialogHeader>
 
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -168,18 +246,6 @@ export function GradeTermsManager({ gradeId, gradeName, academicYear = new Date(
                   onChange={(e) => setFormData({ ...formData, term_name: e.target.value })}
                   required
                 />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="term_order">Term Order</Label>
-                <Input
-                  id="term_order"
-                  type="number"
-                  min="1"
-                  value={formData.term_order}
-                  onChange={(e) => setFormData({ ...formData, term_order: parseInt(e.target.value || '1') })}
-                />
-                <p className="text-xs text-muted-foreground">Used to sort terms chronologically</p>
               </div>
 
               <div className="space-y-2">
@@ -202,7 +268,10 @@ export function GradeTermsManager({ gradeId, gradeName, academicYear = new Date(
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => setIsDialogOpen(false)}
+                  onClick={() => {
+                    setIsDialogOpen(false);
+                    resetForm();
+                  }}
                   disabled={isSubmitting}
                 >
                   Cancel
@@ -211,10 +280,10 @@ export function GradeTermsManager({ gradeId, gradeName, academicYear = new Date(
                   {isSubmitting ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Adding...
+                      Saving...
                     </>
                   ) : (
-                    'Add Term'
+                    editingTerm ? 'Update Term' : 'Add Term'
                   )}
                 </Button>
               </div>
@@ -237,6 +306,7 @@ export function GradeTermsManager({ gradeId, gradeName, academicYear = new Date(
           <table className="w-full">
             <thead>
               <tr className="border-b-2 border-border bg-muted">
+                <th className="w-8 px-4 py-3 text-center text-sm font-medium"></th>
                 <th className="px-4 py-3 text-left text-sm font-medium uppercase">Term</th>
                 <th className="px-4 py-3 text-left text-sm font-medium uppercase">Fee Amount</th>
                 <th className="px-4 py-3 text-right text-sm font-medium uppercase">Actions</th>
@@ -244,28 +314,55 @@ export function GradeTermsManager({ gradeId, gradeName, academicYear = new Date(
             </thead>
             <tbody>
               {terms.map((term) => (
-                <tr key={term.id} className="border-b border-border last:border-0">
+                <tr
+                  key={term.id}
+                  draggable
+                  onDragStart={() => handleDragStart(term)}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={(e) => handleDrop(e, term)}
+                  className="border-b border-border last:border-0 cursor-move hover:bg-muted/30 transition-colors"
+                >
+                  <td className="w-8 px-2 py-3 text-center text-muted-foreground">
+                    <GripVertical className="h-4 w-4 mx-auto" />
+                  </td>
                   <td className="px-4 py-3">
                     <p className="font-medium">{term.term_name}</p>
-                    <p className="text-xs text-muted-foreground">Order: {term.term_order}</p>
                   </td>
                   <td className="px-4 py-3 font-semibold">
                     {formatCurrency(term.fee_amount)}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => deleteTerm(term.id, term.term_name)}
-                      className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => openEditTerm(term)}
+                        disabled={isUpdatingOrder}
+                        className="text-blue-600 hover:text-blue-600 hover:bg-blue-50"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => deleteTerm(term.id, term.term_name)}
+                        disabled={isUpdatingOrder}
+                        className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          {isUpdatingOrder && (
+            <div className="px-4 py-2 text-xs text-muted-foreground bg-muted/50">
+              Updating term order...
+            </div>
+          )}
         </div>
       )}
     </div>

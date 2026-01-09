@@ -16,6 +16,7 @@ import { useOfflineSync } from '@/hooks/useOfflineSync';
 import { generateLocalId, isOnline } from '@/lib/offline-db';
 import { EditPaymentDialog } from '@/components/EditPaymentDialog';
 import { logImportantEdit, getPaymentAuditLogs } from '@/lib/audit-logger';
+import { cachedDataService } from '@/lib/cached-data-service';
 
 // helper: parse numeric order from term like "Term 2"
 function parseTermOrder(term: string | undefined) {
@@ -76,46 +77,48 @@ export default function Payments() {
 
   const fetchGrades = async () => {
     try {
-      const { data } = await supabase.from('grades').select('id,name,fee_per_term').eq('active', true).order('name');
-      if (data) setGrades(data as { id: string; name: string; fee_per_term: number }[]);
+      const grades = await cachedDataService.getGrades();
+      setGrades(grades as unknown as { id: string; name: string; fee_per_term: number }[]);
     } catch (err) {
-      console.error('Error fetching grades', err);
+      console.error('Error fetching grades:', err);
+      toast.error('Could not load grades', {
+        description: 'Make sure you have loaded this page online at least once.',
+      });
     }
   };
 
   const fetchGradeTerms = async () => {
     try {
-      const { data } = await supabase
-        .from('grade_terms')
-        .select('*')
-        .eq('is_active', true)
-        .eq('academic_year', new Date().getFullYear())
-        .order('grade_id, term_order');
-      if (data) setGradeTerms(data as unknown as GradeTerm[]);
+      const terms = await cachedDataService.getGradeTerms();
+      setGradeTerms(terms);
     } catch (err) {
-      console.error('Error fetching grade terms', err);
+      console.error('Error fetching grade terms:', err);
+      toast.error('Could not load grade terms', {
+        description: 'Make sure you have loaded this page online at least once.',
+      });
     }
   };
 
   const fetchData = async () => {
     try {
-      const [paymentsRes, studentsRes] = await Promise.all([
+      const [paymentsRes, cachedStudents] = await Promise.all([
         supabase
           .from('payments')
           .select('*, student:students(*)')
           .order('created_at', { ascending: false })
           .limit(100),
-        supabase
-          .from('students')
-          .select('*')
-          .eq('is_deleted', false)
-          .order('name'),
+        cachedDataService.getStudents(),
       ]);
 
       if (paymentsRes.data) setPayments(paymentsRes.data as unknown as (Payment & { student: Student })[]);
-      if (studentsRes.data) setStudents(studentsRes.data as Student[]);
+      setStudents(cachedStudents);
     } catch (error) {
       console.error('Error fetching data:', error);
+      if (!navigator.onLine) {
+        toast.error('Offline mode', {
+          description: 'Some data may not be available. Student list is cached for offline use.',
+        });
+      }
     } finally {
       setIsLoading(false);
     }

@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { AppRole, Profile } from '@/types/database';
 import { validateEmail, validatePassword } from '@/lib/validation';
 import { logError } from '@/lib/error-logger';
+import { cachedDataService } from '@/lib/cached-data-service';
 
 interface AuthContextType {
   user: User | null;
@@ -69,38 +70,62 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Add small delay to ensure DB records are available
       await new Promise(resolve => setTimeout(resolve, 300));
 
-      // Fetch profile
-      const { data: profileData, error: profileError } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('user_id', userId)
-        .maybeSingle();
-      
-      if (profileError) {
-        console.error('Profile fetch error:', profileError);
-      }
-      setProfile(profileData as Profile | null);
+      console.log('[AuthContext] Fetching user data for:', userId);
 
-      // Fetch role - use maybeSingle() instead of single() to handle missing role
-      const { data: roleData, error: roleError } = await supabase
-        .from('user_roles')
-        .select('role')
-        .eq('user_id', userId)
-        .maybeSingle();
-      
-      if (roleError) {
-        console.error('Role fetch error:', roleError);
+      // Fetch profile with cache
+      try {
+        const profileData = await cachedDataService.getProfile(userId);
+        setProfile(profileData);
+        console.log('[AuthContext] Profile loaded from cache:', {
+          name: profileData?.full_name,
+          email: profileData?.email,
+          profileId: profileData?.id,
+          createdAt: profileData?.created_at,
+        });
+      } catch (error) {
+        console.error('[AuthContext] Profile fetch error:', error);
+        setProfile(null);
       }
-      
-      if (roleData?.role) {
-        console.log('Role found:', roleData.role);
-        setRole(roleData.role as AppRole);
-      } else {
-        console.warn('No role found for user:', userId);
+
+      // Fetch role with cache
+      try {
+        const roleData = await cachedDataService.getUserRole(userId);
+        if (roleData?.role) {
+          console.log('[AuthContext] Role found and cached:', {
+            role: roleData.role,
+            roleId: roleData.id,
+            createdAt: roleData.created_at,
+          });
+          setRole(roleData.role as AppRole);
+        } else {
+          console.warn('[AuthContext] No role found for user:', userId);
+          setRole(null);
+        }
+      } catch (error) {
+        console.error('[AuthContext] Role fetch error:', error);
         setRole(null);
       }
+
+      // Initialize essential cache for offline use (fire and forget)
+      console.log('[AuthContext] Initializing essential cache for offline use...');
+      Promise.all([
+        cachedDataService.getStudents({ forceRefresh: false }),
+        cachedDataService.getGrades({ forceRefresh: false }),
+        cachedDataService.getGradeTerms(new Date().getFullYear(), { forceRefresh: false }),
+      ])
+        .then(([students, grades, terms]) => {
+          console.log('[AuthContext] Essential cache initialized:', {
+            students: students.length,
+            grades: grades.length,
+            terms: terms.length,
+          });
+        })
+        .catch(err => {
+          // Silent fail - cache will be used when available
+          console.log('[AuthContext] Essential cache initialization deferred:', err instanceof Error ? err.message : 'Unknown error');
+        });
     } catch (error) {
-      console.error('Error fetching user data:', error);
+      console.error('[AuthContext] Error fetching user data:', error);
       logError('Error fetching user data', error);
     } finally {
       setIsLoading(false);

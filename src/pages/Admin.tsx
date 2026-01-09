@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Loader2, Users, FileText, CreditCard, GraduationCap, Shield, Plus, Pencil, Trash2 } from 'lucide-react';
+import { Loader2, Users, FileText, CreditCard, GraduationCap, Shield, Plus, Pencil, Trash2, DollarSign } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,6 +14,8 @@ import { Grade, Profile, UserRole, AuditLog, Payment, Student } from '@/types/da
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { Navigate } from 'react-router-dom';
+import { GradeTermsManager } from '@/components/GradeTermsManager';
+import { cachedDataService } from '@/lib/cached-data-service';
 
 export default function Admin() {
   const { isAdmin, isLoading: authLoading } = useAuth();
@@ -28,7 +30,9 @@ export default function Admin() {
   const [isLoadingGrades, setIsLoadingGrades] = useState(true);
   const [isGradeDialogOpen, setIsGradeDialogOpen] = useState(false);
   const [editingGrade, setEditingGrade] = useState<Grade | null>(null);
-  const [gradeForm, setGradeForm] = useState({ name: '', capacity: '40', feePerTerm: '0' });
+  const [gradeForm, setGradeForm] = useState({ name: '', capacity: '40' });
+  const [selectedGradeForTerms, setSelectedGradeForTerms] = useState<Grade | null>(null);
+  const [isTermFeesDialogOpen, setIsTermFeesDialogOpen] = useState(false);
   
   // Audit logs state
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
@@ -75,11 +79,8 @@ export default function Admin() {
 
   const fetchGrades = async () => {
     try {
-      const { data } = await supabase
-        .from('grades')
-        .select('*')
-        .order('name');
-      setGrades((data as Grade[]) || []);
+      const gradesData = await cachedDataService.getGrades();
+      setGrades(gradesData);
     } catch (error) {
       console.error('Error fetching grades:', error);
     } finally {
@@ -142,7 +143,6 @@ export default function Admin() {
           .update({
             name: gradeForm.name,
             capacity: parseInt(gradeForm.capacity),
-            fee_per_term: parseFloat(gradeForm.feePerTerm),
           })
           .eq('id', editingGrade.id);
 
@@ -154,7 +154,6 @@ export default function Admin() {
           .insert({
             name: gradeForm.name,
             capacity: parseInt(gradeForm.capacity),
-            fee_per_term: parseFloat(gradeForm.feePerTerm),
           });
 
         if (error) throw error;
@@ -163,7 +162,7 @@ export default function Admin() {
 
       setIsGradeDialogOpen(false);
       setEditingGrade(null);
-      setGradeForm({ name: '', capacity: '40', feePerTerm: '0' });
+      setGradeForm({ name: '', capacity: '40' });
       fetchGrades();
     } catch (error) {
       console.error('Error saving grade:', error);
@@ -194,15 +193,19 @@ export default function Admin() {
     setGradeForm({
       name: grade.name,
       capacity: grade.capacity.toString(),
-      feePerTerm: grade.fee_per_term.toString(),
     });
     setIsGradeDialogOpen(true);
   };
 
   const openNewGrade = () => {
     setEditingGrade(null);
-    setGradeForm({ name: '', capacity: '40', feePerTerm: '0' });
+    setGradeForm({ name: '', capacity: '40' });
     setIsGradeDialogOpen(true);
+  };
+
+  const openTermFeesDialog = (grade: Grade) => {
+    setSelectedGradeForTerms(grade);
+    setIsTermFeesDialogOpen(true);
   };
 
   const formatCurrency = (amount: number) => {
@@ -350,18 +353,6 @@ export default function Admin() {
                         className="border-2"
                       />
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="feePerTerm">Fee Per Term (KES)</Label>
-                      <Input
-                        id="feePerTerm"
-                        type="number"
-                        min="0"
-                        step="100"
-                        value={gradeForm.feePerTerm}
-                        onChange={(e) => setGradeForm({ ...gradeForm, feePerTerm: e.target.value })}
-                        className="border-2"
-                      />
-                    </div>
                     <div className="flex justify-end gap-2 pt-4">
                       <Button variant="outline" onClick={() => setIsGradeDialogOpen(false)}>
                         Cancel
@@ -387,7 +378,6 @@ export default function Admin() {
                     <thead>
                       <tr className="border-b-2 border-border bg-muted">
                         <th className="px-4 py-3 text-left text-sm font-medium uppercase">Grade</th>
-                        <th className="px-4 py-3 text-left text-sm font-medium uppercase">Fee/Term</th>
                         <th className="px-4 py-3 text-left text-sm font-medium uppercase">Capacity</th>
                         <th className="px-4 py-3 text-left text-sm font-medium uppercase">Status</th>
                         <th className="px-4 py-3 text-right text-sm font-medium uppercase">Actions</th>
@@ -397,7 +387,6 @@ export default function Admin() {
                       {grades.map((grade) => (
                         <tr key={grade.id} className="border-b border-border last:border-0">
                           <td className="px-4 py-3 font-medium">{grade.name}</td>
-                          <td className="px-4 py-3">{formatCurrency(grade.fee_per_term)}</td>
                           <td className="px-4 py-3">{grade.capacity} students</td>
                           <td className="px-4 py-3">
                             <span className={`inline-block px-2 py-1 text-xs font-medium uppercase ${
@@ -410,6 +399,14 @@ export default function Admin() {
                           </td>
                           <td className="px-4 py-3 text-right">
                             <div className="flex justify-end gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => openTermFeesDialog(grade)}
+                                title="Manage fees for different terms"
+                              >
+                                <DollarSign className="h-4 w-4" />
+                              </Button>
                               <Button
                                 variant="outline"
                                 size="sm"
@@ -448,6 +445,24 @@ export default function Admin() {
               )}
             </div>
           </TabsContent>
+
+          {/* Term Fees Dialog */}
+          <Dialog open={isTermFeesDialogOpen} onOpenChange={setIsTermFeesDialogOpen}>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>
+                  Manage Term Fees - {selectedGradeForTerms?.name}
+                </DialogTitle>
+              </DialogHeader>
+              {selectedGradeForTerms && (
+                <GradeTermsManager 
+                  gradeId={selectedGradeForTerms.id}
+                  gradeName={selectedGradeForTerms.name}
+                  academicYear={new Date().getFullYear()}
+                />
+              )}
+            </DialogContent>
+          </Dialog>
 
           {/* Payments Tab */}
           <TabsContent value="payments" className="space-y-4">

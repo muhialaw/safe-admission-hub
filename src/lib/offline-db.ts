@@ -174,3 +174,35 @@ export async function markPaymentFailed(localId: string, error: string) {
     .equals(localId)
     .modify({ syncStatus: 'failed', errorMessage: error });
 }
+/**
+ * Offline data getter with cache fallback
+ * If offline, tries to use cached data first
+ */
+export async function getOfflineOrCachedData(dataType: 'students' | 'grades' | 'gradeTerms') {
+  // Try to get from cache first
+  try {
+    const { cacheManager } = await import('./cache-manager');
+    const cacheKey = 
+      dataType === 'students' ? 'students_all' :
+      dataType === 'grades' ? 'grades_all' : 
+      'grade_terms_all';
+    
+    const cached = cacheManager.getCache(cacheKey);
+    if (cached) {
+      console.log(`[OfflineDB] Using cached ${dataType} for offline mode`, {
+        count: Array.isArray(cached) ? cached.length : 'N/A',
+      });
+      return cached;
+    }
+  } catch (error) {
+    console.warn(`[OfflineDB] Could not access cache for ${dataType}:`, error);
+  }
+
+  // If offline and no cache, return empty
+  if (!isOnline()) {
+    console.warn(`[OfflineDB] Offline mode: no cached ${dataType} available`);
+    return [];
+  }
+
+  return null;
+}

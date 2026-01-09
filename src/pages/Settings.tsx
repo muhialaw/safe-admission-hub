@@ -8,6 +8,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Grade } from '@/types/database';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
+import { cachedDataService } from '@/lib/cached-data-service';
 
 export default function Settings() {
   const { isAdmin } = useAuth();
@@ -21,13 +22,8 @@ export default function Settings() {
 
   const fetchGrades = async () => {
     try {
-      const { data, error } = await supabase
-        .from('grades')
-        .select('*')
-        .order('name');
-
-      if (error) throw error;
-      setGrades(data as Grade[]);
+      const gradesData = await cachedDataService.getGrades();
+      setGrades(gradesData);
     } catch (error) {
       console.error('Error fetching grades:', error);
     } finally {

@@ -9,6 +9,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 import { Student, Guardian, Payment } from '@/types/database';
 import { format } from 'date-fns';
+import { cachedDataService } from '@/lib/cached-data-service';
 
 export default function Students() {
   const { user, isAdmin, role } = useAuth();
@@ -34,23 +35,26 @@ export default function Students() {
 
   const fetchStudents = async (pageNumber = 1) => {
     try {
+      // Use cached students for listing
+      const allStudents = await cachedDataService.getStudents();
+      
+      // Paginate the cached results
       const start = (pageNumber - 1) * pageSize;
-      const end = start + pageSize - 1;
-
-      const { data, error, count } = await supabase
-        .from('students')
-        .select('*, grade:grades(*)', { count: 'exact' })
-        .eq('is_deleted', false)
-        .order('name')
-        .range(start, end);
-
-      if (error) throw error;
-      setStudents(data as unknown as Student[]);
-      if (typeof count === 'number') {
-        setTotalPages(Math.max(1, Math.ceil(count / pageSize)));
-      }
+      const end = start + pageSize;
+      
+      setStudents(allStudents.slice(start, end));
+      setTotalPages(Math.max(1, Math.ceil(allStudents.length / pageSize)));
     } catch (error) {
       console.error('Error fetching students:', error);
+      if (!navigator.onLine) {
+        toast.error('Offline mode', {
+          description: 'Student data is not available. Please go online to load student data.',
+        });
+      } else {
+        toast.error('Failed to load students', {
+          description: 'Please try again or refresh the page.',
+        });
+      }
     } finally {
       setIsLoading(false);
     }
