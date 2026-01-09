@@ -9,11 +9,13 @@ import {
   LogOut,
   Menu,
   X,
-  GraduationCap
+  GraduationCap,
+  ShieldCheck
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
+import { OfflineIndicator } from '@/components/OfflineIndicator';
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -27,11 +29,17 @@ const navigation = [
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
 
+const adminNavigation = [
+  { name: 'Admin Panel', href: '/admin', icon: ShieldCheck },
+];
+
 export function AppLayout({ children }: AppLayoutProps) {
-  const { profile, role, signOut } = useAuth();
+  const { profile, role, signOut, isAdmin } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  const allNavigation = isAdmin ? [...navigation, ...adminNavigation] : navigation;
 
   const handleSignOut = async () => {
     await signOut();
@@ -72,7 +80,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 
           {/* Navigation */}
           <nav className="flex-1 space-y-1 p-4">
-            {navigation.map((item) => {
+            {allNavigation.map((item) => {
               const isActive = location.pathname === item.href;
               return (
                 <Link
@@ -131,6 +139,9 @@ export function AppLayout({ children }: AppLayoutProps) {
           {children}
         </main>
       </div>
+
+      {/* Offline Indicator */}
+      <OfflineIndicator />
     </div>
   );
 }

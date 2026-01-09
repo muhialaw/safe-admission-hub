@@ -1,0 +1,130 @@
+import Dexie, { Table } from 'dexie';
+
+export interface OfflineStudent {
+  id?: number;
+  localId: string;
+  name: string;
+  dob: string | null;
+  gradeId: string | null;
+  admissionTerm: string;
+  admissionYear: number;
+  guardianName: string | null;
+  guardianPhone: string | null;
+  guardianArea: string | null;
+  syncStatus: 'pending' | 'synced' | 'failed';
+  createdAt: string;
+  syncedId?: string; // Server ID after sync
+  errorMessage?: string;
+}
+
+export interface OfflinePayment {
+  id?: number;
+  localId: string;
+  studentId: string;
+  studentName: string;
+  amount: number;
+  method: 'mpesa' | 'bank' | 'manual';
+  reference: string | null;
+  syncStatus: 'pending' | 'synced' | 'failed';
+  createdAt: string;
+  syncedId?: string;
+  errorMessage?: string;
+}
+
+export interface SyncQueueItem {
+  id?: number;
+  type: 'student' | 'payment';
+  localId: string;
+  data: Record<string, unknown>;
+  attempts: number;
+  lastAttempt: string | null;
+  status: 'pending' | 'processing' | 'failed';
+}
+
+class ShuleOfflineDB extends Dexie {
+  students!: Table<OfflineStudent>;
+  payments!: Table<OfflinePayment>;
+  syncQueue!: Table<SyncQueueItem>;
+
+  constructor() {
+    super('ShulePOS');
+    
+    this.version(1).stores({
+      students: '++id, localId, syncStatus, createdAt',
+      payments: '++id, localId, studentId, syncStatus, createdAt',
+      syncQueue: '++id, type, localId, status',
+    });
+  }
+}
+
+export const offlineDb = new ShuleOfflineDB();
+
+// Helper to generate local IDs
+export function generateLocalId(): string {
+  return `local_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
+
+// Check if we're online
+export function isOnline(): boolean {
+  return navigator.onLine;
+}
+
+// Get pending sync count
+export async function getPendingSyncCount(): Promise<number> {
+  const pendingStudents = await offlineDb.students
+    .where('syncStatus')
+    .equals('pending')
+    .count();
+  
+  const pendingPayments = await offlineDb.payments
+    .where('syncStatus')
+    .equals('pending')
+    .count();
+  
+  return pendingStudents + pendingPayments;
+}
+
+// Get all pending items
+export async function getPendingItems() {
+  const students = await offlineDb.students
+    .where('syncStatus')
+    .equals('pending')
+    .toArray();
+  
+  const payments = await offlineDb.payments
+    .where('syncStatus')
+    .equals('pending')
+    .toArray();
+  
+  return { students, payments };
+}
+
+// Mark item as synced
+export async function markStudentSynced(localId: string, serverId: string) {
+  await offlineDb.students
+    .where('localId')
+    .equals(localId)
+    .modify({ syncStatus: 'synced', syncedId: serverId });
+}
+
+export async function markPaymentSynced(localId: string, serverId: string) {
+  await offlineDb.payments
+    .where('localId')
+    .equals(localId)
+    .modify({ syncStatus: 'synced', syncedId: serverId });
+}
+
+// Mark item as failed
+export async function markStudentFailed(localId: string, error: string) {
+  await offlineDb.students
+    .where('localId')
+    .equals(localId)
+    .modify({ syncStatus: 'failed', errorMessage: error });
+}
+
+export async function markPaymentFailed(localId: string, error: string) {
+  await offlineDb.payments
+    .where('localId')
+    .equals(localId)
+    .modify({ syncStatus: 'failed', errorMessage: error });
+}
