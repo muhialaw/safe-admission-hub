@@ -1,7 +1,7 @@
 # Role-Based Access Control Implementation - Setup Guide
 
 ## Overview
-This document outlines the role-based access control (RBAC) system implemented for the SHULE POS school management system. The system supports two roles: **Admin** and **Receptionist**, each with their own registration and login flows.
+This document outlines the role-based access control (RBAC) system implemented for the Royal Brook Kindergarten school management system. The system supports two roles: **Admin** and **Receptionist**, each with their own registration and login flows.
 
 ## Database Schema
 The system uses the following tables from Supabase:

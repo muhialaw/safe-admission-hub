@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { GraduationCap, Shield, UserCheck } from 'lucide-react';
+import { Shield, UserCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export default function Welcome() {
@@ -8,10 +8,10 @@ export default function Welcome() {
       <div className="w-full max-w-4xl space-y-12">
         {/* Header */}
         <div className="text-center space-y-4">
-          <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center border-2 border-border bg-primary">
-            <GraduationCap className="h-12 w-12 text-primary-foreground" />
+          <div className="mx-auto mb-4 flex h-24 w-24 items-center justify-center border-2 border-border bg-primary rounded-lg overflow-hidden">
+            <img src="/royal-brook-logo.jpg" alt="Royal Brook Kindergarten" className="h-full w-full object-cover" />
           </div>
-          <h1 className="text-4xl font-bold tracking-tight">SHULE POS</h1>
+          <h1 className="text-4xl font-bold tracking-tight">Royal Brook Kindergarten</h1>
           <p className="text-xl text-muted-foreground">
             School Management System
           </p>
