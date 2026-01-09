@@ -11,25 +11,35 @@ import { format } from 'date-fns';
 export default function Students() {
   const [students, setStudents] = useState<Student[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const pageSize = 50;
+  const [totalPages, setTotalPages] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [studentGuardians, setStudentGuardians] = useState<Guardian[]>([]);
   const [studentPayments, setStudentPayments] = useState<Payment[]>([]);
 
   useEffect(() => {
-    fetchStudents();
-  }, []);
+    fetchStudents(page);
+  }, [page]);
 
-  const fetchStudents = async () => {
+  const fetchStudents = async (pageNumber = 1) => {
     try {
-      const { data, error } = await supabase
+      const start = (pageNumber - 1) * pageSize;
+      const end = start + pageSize - 1;
+
+      const { data, error, count } = await supabase
         .from('students')
-        .select('*, grade:grades(*)')
+        .select('*, grade:grades(*)', { count: 'exact' })
         .eq('is_deleted', false)
-        .order('name');
+        .order('name')
+        .range(start, end);
 
       if (error) throw error;
       setStudents(data as unknown as Student[]);
+      if (typeof count === 'number') {
+        setTotalPages(Math.max(1, Math.ceil(count / pageSize)));
+      }
     } catch (error) {
       console.error('Error fetching students:', error);
     } finally {
@@ -41,20 +51,27 @@ export default function Students() {
     setSelectedStudent(student);
     
     // Fetch guardians and payments
-    const [guardiansRes, paymentsRes] = await Promise.all([
-      supabase
-        .from('guardians')
-        .select('*')
-        .eq('student_id', student.id),
-      supabase
-        .from('payments')
-        .select('*')
-        .eq('student_id', student.id)
-        .order('created_at', { ascending: false }),
-    ]);
+    try {
+      const [guardiansRes, paymentsRes] = await Promise.all([
+        supabase
+          .from('guardians')
+          .select('*')
+          .eq('student_id', student.id),
+        supabase
+          .from('payments')
+          .select('*')
+          .eq('student_id', student.id)
+          .order('created_at', { ascending: false })
+          .range(0, 49), // fetch up to 50 recent payments, load more on demand
+      ]);
 
-    setStudentGuardians((guardiansRes.data as Guardian[]) || []);
-    setStudentPayments((paymentsRes.data as Payment[]) || []);
+      setStudentGuardians((guardiansRes.data as Guardian[]) || []);
+      setStudentPayments((paymentsRes.data as Payment[]) || []);
+    } catch (err) {
+      console.error('Error fetching student details:', err);
+      setStudentGuardians([]);
+      setStudentPayments([]);
+    }
   };
 
   const filteredStudents = students.filter(student =>
@@ -151,14 +168,23 @@ export default function Students() {
           )}
         </div>
 
+        {/* Pagination controls for students */}
+        <div className="flex items-center justify-between mt-4">
+          <div className="text-sm text-muted-foreground">Page {page} of {totalPages}</div>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={() => setPage(p => Math.max(1, p-1))} disabled={page===1}>Prev</Button>
+            <Button size="sm" variant="outline" onClick={() => setPage(p => Math.min(totalPages, p+1))} disabled={page===totalPages}>Next</Button>
+          </div>
+        </div>
+
         {/* Student Detail Dialog */}
         <Dialog open={!!selectedStudent} onOpenChange={() => setSelectedStudent(null)}>
-          <DialogContent className="max-w-2xl">
+          <DialogContent className="max-w-2xl max-h-[calc(100vh-4rem)] overflow-hidden">
             <DialogHeader>
               <DialogTitle>Student Details</DialogTitle>
             </DialogHeader>
             {selectedStudent && (
-              <div className="space-y-6">
+              <div className="overflow-auto max-h-[calc(100vh-12rem)] p-4 space-y-6">
                 {/* Student Info */}
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>

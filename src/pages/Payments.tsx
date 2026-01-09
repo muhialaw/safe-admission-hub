@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
 import { supabase } from '@/integrations/supabase/client';
 import { Student, Payment, GradeTerm } from '@/types/database';
+import { StudentDetailsModal } from '@/components/StudentDetailsModal';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -15,6 +16,13 @@ import { useOfflineSync } from '@/hooks/useOfflineSync';
 import { generateLocalId, isOnline } from '@/lib/offline-db';
 import { EditPaymentDialog } from '@/components/EditPaymentDialog';
 import { logImportantEdit, getPaymentAuditLogs } from '@/lib/audit-logger';
+
+// helper: parse numeric order from term like "Term 2"
+function parseTermOrder(term: string | undefined) {
+  if (!term) return 0;
+  const m = String(term).match(/(\d+)/);
+  return m ? parseInt(m[1], 10) : 0;
+}
 
 export default function Payments() {
   const { user, isAdmin } = useAuth();
@@ -142,6 +150,10 @@ export default function Payments() {
     setSelectedStudentName(student?.name || '');
   };
 
+  // student modal
+  const [studentModalOpen, setStudentModalOpen] = useState(false);
+  const [modalStudent, setModalStudent] = useState<Student | null>(null);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
@@ -190,6 +202,66 @@ export default function Payments() {
       }
     }
 
+    // Validate previous terms and admission
+    try {
+      const student = students.find(s => s.id === formData.studentId);
+      if (!student) {
+        toast.error('Selected student not found');
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Ensure not paying for terms before admission
+      const studentAdmissionOrder = parseTermOrder(student.admission_term || 'Term 1');
+      const targetOrder = parseTermOrder(formData.admissionTerm);
+      if (formData.admissionYear < (student.admission_year || 0)) {
+        toast.error('Cannot record payment for a year before the student was admitted');
+        setIsSubmitting(false);
+        return;
+      }
+
+      if (targetOrder < studentAdmissionOrder && formData.admissionYear === student.admission_year) {
+        toast.error('Cannot record payment for a term before the student was admitted');
+        setIsSubmitting(false);
+        return;
+      }
+
+      // If paying for a later term, ensure all intervening terms (from admission term) are fully paid
+      if (targetOrder > studentAdmissionOrder && formData.admissionYear === student.admission_year) {
+        const missingTerms: string[] = [];
+
+        for (let t = studentAdmissionOrder; t < targetOrder; t++) {
+          const termName = `Term ${t}`;
+
+          // determine fee for this term: prefer grade_terms, fallback to grade.fee_per_term
+          const gradeTerm = gradeTerms.find(gt => gt.grade_id === student.grade_id && gt.term_name === termName && gt.academic_year === formData.admissionYear);
+          const fee = gradeTerm ? Number(gradeTerm.fee_amount) : grades.find(g => g.id === student.grade_id)?.fee_per_term;
+
+          if (fee == null) {
+            toast.error(`Fee configuration missing for ${termName}. Configure grade terms or fee_per_term first`);
+            setIsSubmitting(false);
+            return;
+          }
+
+          const totalPaidForTerm = payments
+            .filter(p => p.student?.id === student.id && p.admission_term === termName && p.admission_year === formData.admissionYear)
+            .reduce((s, p) => s + (p.amount || 0), 0);
+
+          if (totalPaidForTerm < fee) missingTerms.push(termName);
+        }
+
+        if (missingTerms.length > 0) {
+          toast.error(`Previous term(s) not fully paid: ${missingTerms.join(', ')}`);
+          setIsSubmitting(false);
+          return;
+        }
+      }
+    } catch (err) {
+      console.error('Term validation error', err);
+      toast.error('Failed to validate term/payment prerequisites');
+      setIsSubmitting(false);
+      return;
+    }
     // If offline, save locally (note: STK push won't work offline)
     if (!isOnline()) {
       if (formData.method !== 'cash') {
@@ -327,6 +399,25 @@ export default function Payments() {
     }
   };
 
+  const openStudentModal = (student: Student) => {
+    setModalStudent(student);
+    setStudentModalOpen(true);
+  };
+
+  const handleCreatePaymentForTerm = (termName: string, year: number) => {
+    if (!modalStudent) return;
+    // prefill the payment dialog and open it
+    setFormData({
+      ...formData,
+      studentId: modalStudent.id,
+      admissionTerm: termName,
+      admissionYear: year,
+    });
+    setSelectedStudentName(modalStudent.name);
+    setStudentModalOpen(false);
+    setIsDialogOpen(true);
+  };
+
   const filteredPayments = payments.filter(payment =>
     payment.student?.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     payment.student?.student_id.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -365,7 +456,7 @@ export default function Payments() {
                 Record Payment
               </Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="max-h-[calc(100vh-4rem)] overflow-hidden">
               <DialogHeader>
                 <DialogTitle>
                   Record New Payment
@@ -377,7 +468,8 @@ export default function Payments() {
                 </DialogTitle>
                 <DialogDescription>Enter payment details. M-Pesa/Bank require transaction ID.</DialogDescription>
               </DialogHeader>
-              <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="overflow-auto max-h-[calc(100vh-12rem)] p-4">
+                <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="grade">Filter by Grade</Label>
                   <Select
@@ -432,9 +524,25 @@ export default function Payments() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="Term 1">Term 1</SelectItem>
-                          <SelectItem value="Term 2">Term 2</SelectItem>
-                          <SelectItem value="Term 3">Term 3</SelectItem>
+                          {/* only show terms the student is eligible for */}
+                          {(() => {
+                            const student = students.find(s => s.id === formData.studentId);
+                            const admissionOrder = parseTermOrder(student?.admission_term || 'Term 1');
+                            const academicYear = formData.admissionYear;
+
+                            // prefer grade_terms
+                            const termsForGrade = gradeTerms.filter(gt => gt.grade_id === student?.grade_id && gt.academic_year === academicYear && gt.is_active).sort((a,b) => a.term_order - b.term_order);
+                            if (termsForGrade.length > 0) {
+                              return termsForGrade
+                                .filter(gt => gt.term_order >= admissionOrder)
+                                .map(gt => <SelectItem key={gt.id} value={gt.term_name}>{gt.term_name}</SelectItem>);
+                            }
+
+                            // fallback default 3 terms
+                            return [1,2,3].filter(n => n >= admissionOrder).map(n => (
+                              <SelectItem key={n} value={`Term ${n}`}>Term {n}</SelectItem>
+                            ));
+                          })()}
                         </SelectContent>
                       </Select>
                     </div>
@@ -521,7 +629,8 @@ export default function Payments() {
                     )}
                   </Button>
                 </div>
-              </form>
+                </form>
+              </div>
             </DialogContent>
           </Dialog>
         </div>
@@ -549,6 +658,7 @@ export default function Payments() {
             </div>
           ) : (
             <div className="overflow-x-auto">
+              <div className="max-h-[calc(100vh-20rem)] overflow-auto">
               <table className="w-full">
                 <thead>
                   <tr className="border-b-2 border-border bg-muted">
@@ -599,7 +709,11 @@ export default function Payments() {
                         {format(new Date(payment.created_at), 'MMM d, yyyy')}
                       </td>
                       <td className="px-4 py-3">
-                        <p className="font-medium">{payment.student?.name}</p>
+                        <p>
+                          <button className="font-medium underline" onClick={() => openStudentModal(payment.student!)}>
+                            {payment.student?.name}
+                          </button>
+                        </p>
                         <p className="text-sm text-muted-foreground font-mono">
                           {payment.student?.student_id}
                         </p>
@@ -706,6 +820,7 @@ export default function Payments() {
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           )}
         </div>
@@ -716,6 +831,15 @@ export default function Payments() {
         open={!!editingPayment}
         onOpenChange={(open) => !open && setEditingPayment(null)}
         onSave={handleEditPayment}
+      />
+      <StudentDetailsModal
+        student={modalStudent}
+        payments={payments}
+        gradeTerms={gradeTerms}
+        grades={grades}
+        open={studentModalOpen}
+        onOpenChange={setStudentModalOpen}
+        onCreatePaymentForTerm={handleCreatePaymentForTerm}
       />
     </AppLayout>
   );
