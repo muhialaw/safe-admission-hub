@@ -49,10 +49,20 @@ export default function Payments() {
     reference: '',
     admissionTerm: 'Term 1',
     admissionYear: new Date().getFullYear(),
+    gradeId: '',
   });
 
   // Track selected student name for offline
   const [selectedStudentName, setSelectedStudentName] = useState('');
+  const [manualGradeInput, setManualGradeInput] = useState('');
+
+  // Payment list search and pagination
+  const [searchStudent, setSearchStudent] = useState('');
+  const [searchAmount, setSearchAmount] = useState('');
+  const [searchTerm, setSearchTerm] = useState('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [paymentDetailModal, setPaymentDetailModal] = useState<(Payment & { student: Student }) | null>(null);
+  const itemsPerPage = 10;
 
   useEffect(() => {
     fetchData();
@@ -176,13 +186,45 @@ export default function Payments() {
     }
 
     // If mpesa or bank require reference
-    if ((formData.method === 'mpesa' || formData.method === 'bank') && !formData.reference.trim()) {
-      toast.error('Transaction ID/Reference is required for M-Pesa and Bank transfers');
+    if ((formData.method === 'mobile' || formData.method === 'bank') && !formData.reference.trim()) {
+      toast.error('Transaction ID/Reference is required for Mobile Money and Bank transfers');
       setIsSubmitting(false);
       return;
     }
 
-    // If a reference is provided ensure uniqueness
+    // If offline, save locally without complex validation (note: STK push won't work offline)
+    if (!isOnline()) {
+      if (formData.method !== 'cash') {
+        toast.error('Mobile Money and Bank payments require an internet connection');
+        setIsSubmitting(false);
+        return;
+      }
+
+      try {
+        await addOfflinePayment({
+          localId: generateLocalId(),
+          studentId: formData.studentId,
+          studentName: selectedStudentName,
+          amount: numericAmount,
+          method: formData.method as 'cash' | 'mobile' | 'bank',
+          reference: formData.reference || null,
+          term: formData.admissionTerm,
+          year: formData.admissionYear,
+        });
+
+        toast.success('Payment saved offline. Will sync and validate when online.');
+        setIsDialogOpen(false);
+        resetForm();
+      } catch (error) {
+        console.error('Error saving offline:', error);
+        toast.error('Failed to save offline');
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
+
+    // Online validation: check reference uniqueness and student/term prerequisites
     const sanitizedRef = formData.reference.trim().replace(/[^a-zA-Z0-9-]/g, '');
     if (sanitizedRef) {
       try {
@@ -202,7 +244,7 @@ export default function Payments() {
       }
     }
 
-    // Validate previous terms and admission
+    // Validate previous terms and admission (online only)
     try {
       const student = students.find(s => s.id === formData.studentId);
       if (!student) {
@@ -262,38 +304,10 @@ export default function Payments() {
       setIsSubmitting(false);
       return;
     }
-    // If offline, save locally (note: STK push won't work offline)
-    if (!isOnline()) {
-      if (formData.method !== 'cash') {
-        toast.error('M-Pesa and Bank payments require an internet connection');
-        setIsSubmitting(false);
-        return;
-      }
-
-      try {
-        await addOfflinePayment({
-          localId: generateLocalId(),
-          studentId: formData.studentId,
-          studentName: selectedStudentName,
-          amount: numericAmount,
-          method: formData.method as 'cash',
-          reference: formData.reference || null,
-        });
-
-        toast.success('Payment saved offline. Will sync when online.');
-        setIsDialogOpen(false);
-        resetForm();
-      } catch (error) {
-        console.error('Error saving offline:', error);
-        toast.error('Failed to save offline');
-      } finally {
-        setIsSubmitting(false);
-      }
-      return;
-    }
 
     try {
-      const status = formData.method === 'cash' && !isAdmin ? 'pending' : 'completed';
+      // Non-admin payments must remain pending for review; admins auto-complete
+      const status = isAdmin ? 'completed' : 'pending';
       const sanitizedRef = formData.reference.trim().replace(/[^a-zA-Z0-9-]/g, '') || null;
 
       const { error } = await supabase
@@ -331,9 +345,31 @@ export default function Payments() {
       reference: '',
       admissionTerm: 'Term 1',
       admissionYear: new Date().getFullYear(),
+      gradeId: '',
     });
     setSelectedStudentName('');
+    setManualGradeInput('');
   };
+
+  // Filter payments by search criteria
+  const filteredPayments = payments.filter(p => {
+    const matchStudent = !searchStudent || 
+      p.student?.name.toLowerCase().includes(searchStudent.toLowerCase()) ||
+      p.student?.student_id.toLowerCase().includes(searchStudent.toLowerCase());
+    
+    const matchAmount = !searchAmount || 
+      p.amount.toString().includes(searchAmount);
+    
+    const matchTerm = searchTerm === 'all' || !searchTerm || 
+      p.admission_term?.includes(searchTerm);
+    
+    return matchStudent && matchAmount && matchTerm;
+  });
+
+  // Paginate filtered results
+  const totalPages = Math.ceil(filteredPayments.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedPayments = filteredPayments.slice(startIndex, startIndex + itemsPerPage);
 
   const handleEditPayment = async (editData: {
     amount: number;
@@ -418,12 +454,6 @@ export default function Payments() {
     setIsDialogOpen(true);
   };
 
-  const filteredPayments = payments.filter(payment =>
-    payment.student?.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    payment.student?.student_id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    payment.reference?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-KE', {
       style: 'currency',
@@ -471,48 +501,107 @@ export default function Payments() {
               <div className="overflow-auto max-h-[calc(100vh-12rem)] p-4">
                 <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="grade">Filter by Grade</Label>
-                  <Select
-                    value={selectedGradeId}
-                    onValueChange={(value) => setSelectedGradeId(value)}
-                  >
-                    <SelectTrigger className="border-2">
-                      <SelectValue placeholder="All grades" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="ALL">All grades</SelectItem>
-                      {grades.map((g) => (
-                        <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  {isOffline ? (
+                    <>
+                      <Label htmlFor="studentManual">Student ID or Name *</Label>
+                      <Input
+                        id="studentManual"
+                        placeholder="e.g., 2026/Grade 1/0001 or John Doe"
+                        value={selectedStudentName || formData.studentId}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setSelectedStudentName(val);
+                          setFormData({ ...formData, studentId: val });
+                        }}
+                        className="border-2"
+                        required
+                      />
+                      <p className="text-xs text-muted-foreground">Enter student ID or name. Will be verified when online.</p>
 
-                  <Label htmlFor="studentSearch">Search student (ID or name)</Label>
-                  <Input
-                    id="studentSearch"
-                    placeholder="Type to search..."
-                    value={studentSearch}
-                    onChange={(e) => setStudentSearch(e.target.value)}
-                    className="border-2"
-                  />
+                      <Label htmlFor="gradeOffline" className="mt-4">Grade *</Label>
+                      <Select
+                        value={manualGradeInput ? 'manual' : formData.gradeId}
+                        onValueChange={(value) => {
+                          if (value === 'manual') {
+                            setManualGradeInput('');
+                            setFormData({ ...formData, gradeId: '' });
+                          } else {
+                            setManualGradeInput('');
+                            setFormData({ ...formData, gradeId: value });
+                          }
+                        }}
+                      >
+                        <SelectTrigger className="border-2">
+                          <SelectValue placeholder="Select grade or enter manually" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="manual">Enter manually</SelectItem>
+                          {grades.map((g) => (
+                            <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {(manualGradeInput || (formData.gradeId && !grades.find(g => g.id === formData.gradeId))) && (
+                        <Input
+                          placeholder="Enter grade (e.g., Grade 1, Grade 5)"
+                          value={manualGradeInput || formData.gradeId}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setManualGradeInput(val);
+                            setFormData({ ...formData, gradeId: val });
+                          }}
+                          className="border-2 mt-2"
+                        />
+                      )}
+                      <p className="text-xs text-muted-foreground">Select from available grades or enter manually.</p>
+                    </>
+                  ) : (
+                    <>
+                      <Label htmlFor="grade">Filter by Grade</Label>
+                      <Select
+                        value={selectedGradeId}
+                        onValueChange={(value) => setSelectedGradeId(value)}
+                      >
+                        <SelectTrigger className="border-2">
+                          <SelectValue placeholder="All grades" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="ALL">All grades</SelectItem>
+                          {grades.map((g) => (
+                            <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
 
-                  <Label htmlFor="student">Select Student *</Label>
-                  <Select
-                    value={formData.studentId}
-                    onValueChange={handleStudentSelect}
-                    required
-                  >
-                    <SelectTrigger className="border-2">
-                      <SelectValue placeholder={studentFetchLoading ? 'Searching...' : 'Select student'} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {students.map((student) => (
-                        <SelectItem key={student.id} value={student.id}>
-                          {student.student_id} — {student.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                      <Label htmlFor="studentSearch">Search student (ID or name)</Label>
+                      <Input
+                        id="studentSearch"
+                        placeholder="Type to search..."
+                        value={studentSearch}
+                        onChange={(e) => setStudentSearch(e.target.value)}
+                        className="border-2"
+                      />
+
+                      <Label htmlFor="student">Select Student *</Label>
+                      <Select
+                        value={formData.studentId}
+                        onValueChange={handleStudentSelect}
+                        required
+                      >
+                        <SelectTrigger className="border-2">
+                          <SelectValue placeholder={studentFetchLoading ? 'Searching...' : 'Select student'} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {students.map((student) => (
+                            <SelectItem key={student.id} value={student.id}>
+                              {student.student_id} — {student.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </>
+                  )}
+                </div>
                   <div className="grid gap-4 sm:grid-cols-2 mt-2">
                     <div className="space-y-2">
                       <Label htmlFor="admissionTerm">Term</Label>
@@ -557,7 +646,6 @@ export default function Payments() {
                       />
                     </div>
                   </div>
-                </div>
                 <div className="space-y-2">
                   <Label htmlFor="amount">Amount (KES) *</Label>
                   <Input
@@ -576,24 +664,23 @@ export default function Payments() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="method">Payment Method</Label>
+                  <Label htmlFor="method">Payment Method *</Label>
                   <Select
                     value={formData.method}
                     onValueChange={(value) => setFormData({ ...formData, method: value })}
-                    disabled={isOffline}
                   >
                     <SelectTrigger className="border-2">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="mpesa" disabled={isOffline}>M-Pesa</SelectItem>
-                      <SelectItem value="bank" disabled={isOffline}>Bank Transfer</SelectItem>
                       <SelectItem value="cash">Cash/Other</SelectItem>
+                      <SelectItem value="mobile">Mobile Money</SelectItem>
+                      <SelectItem value="bank">Bank Transfer</SelectItem>
                     </SelectContent>
                   </Select>
                   {isOffline && (
                     <p className="text-xs text-muted-foreground">
-                      Only manual payments available offline
+                      Payment methods saved offline will be confirmed when synced
                     </p>
                   )}
                 </div>
@@ -604,8 +691,13 @@ export default function Payments() {
                     value={formData.reference}
                     onChange={(e) => setFormData({ ...formData, reference: e.target.value })}
                     className="border-2"
-                    placeholder="e.g., QXK2J4N8YP"
+                    placeholder={formData.method === 'cash' ? '(Optional)' : 'e.g., QXK2J4N8YP (Required)'}
                   />
+                  {formData.method !== 'cash' && !formData.reference && (
+                    <p className="text-xs text-destructive">
+                      Transaction ID is required for Mobile Money and Bank transfers
+                    </p>
+                  )}
                 </div>
 
                 <div className="flex justify-end gap-2 pt-4">
@@ -635,19 +727,63 @@ export default function Payments() {
           </Dialog>
         </div>
 
-        {/* Search */}
-        <div className="relative max-w-md">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search payments..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="border-2 pl-10"
-          />
+        {/* Search Filters */}
+        <div className="grid gap-4 sm:grid-cols-3">
+          <div className="space-y-2">
+            <Label htmlFor="searchStudent">Search by Student</Label>
+            <Input
+              id="searchStudent"
+              placeholder="Name or Student ID..."
+              value={searchStudent}
+              onChange={(e) => {
+                setSearchStudent(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="border-2"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="searchAmount">Search by Amount</Label>
+            <Input
+              id="searchAmount"
+              placeholder="e.g., 1850..."
+              value={searchAmount}
+              onChange={(e) => {
+                setSearchAmount(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="border-2"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="searchTerm">Search by Term</Label>
+            <Select
+              value={searchTerm}
+              onValueChange={(value) => {
+                setSearchTerm(value);
+                setCurrentPage(1);
+              }}
+            >
+              <SelectTrigger className="border-2">
+                <SelectValue placeholder="All terms" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All terms</SelectItem>
+                <SelectItem value="Term 1">Term 1</SelectItem>
+                <SelectItem value="Term 2">Term 2</SelectItem>
+                <SelectItem value="Term 3">Term 3</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
-        {/* Payments Table */}
-        <div className="border-2 border-border bg-card">
+        {/* Results count */}
+        <div className="text-sm text-muted-foreground">
+          Showing {Math.min(itemsPerPage, filteredPayments.length)} of {filteredPayments.length} payment{filteredPayments.length !== 1 ? 's' : ''}
+        </div>
+
+        {/* Desktop Table */}
+        <div className="hidden md:block border-2 border-border rounded-lg overflow-hidden bg-card">
           {isLoading ? (
             <div className="flex items-center justify-center p-8">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -703,8 +839,8 @@ export default function Payments() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredPayments.map((payment) => (
-                    <tr key={payment.id} className="border-b border-border last:border-0">
+                  {paginatedPayments.map((payment) => (
+                    <tr key={payment.id} className="border-b border-border last:border-0 hover:bg-muted/50">
                       <td className="px-4 py-3 text-sm">
                         {format(new Date(payment.created_at), 'MMM d, yyyy')}
                       </td>
@@ -824,6 +960,139 @@ export default function Payments() {
             </div>
           )}
         </div>
+
+        {/* Pagination Controls */}
+        {filteredPayments.length > itemsPerPage && (
+          <div className="hidden md:flex items-center justify-between">
+            <Button
+              variant="outline"
+              disabled={currentPage === 1}
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+            >
+              Previous
+            </Button>
+            <div className="text-sm text-muted-foreground">
+              Page {currentPage} of {totalPages}
+            </div>
+            <Button
+              variant="outline"
+              disabled={currentPage === totalPages}
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+            >
+              Next
+            </Button>
+          </div>
+        )}
+
+        {/* Mobile Card View */}
+        <div className="md:hidden space-y-4">
+          {isLoading ? (
+            <div className="flex items-center justify-center p-8">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : filteredPayments.length === 0 ? (
+            <div className="p-8 text-center text-muted-foreground border-2 border-border rounded-lg">
+              {searchStudent || searchAmount || searchTerm ? 'No payments found' : 'No payments recorded'}
+            </div>
+          ) : (
+            paginatedPayments.map((payment) => (
+              <div
+                key={payment.id}
+                className="border-2 border-border rounded-lg p-4 space-y-3 bg-card"
+              >
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="font-medium">{payment.student?.name}</p>
+                    <p className="text-sm text-muted-foreground">{payment.student?.student_id}</p>
+                  </div>
+                  <span className={`px-2 py-1 text-xs font-medium uppercase rounded ${
+                    payment.status === 'completed' 
+                      ? 'bg-chart-2/10 text-chart-2' 
+                      : payment.status === 'pending'
+                      ? 'bg-chart-4/10 text-chart-4'
+                      : 'bg-destructive/10 text-destructive'
+                  }`}>
+                    {payment.status}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div>
+                    <p className="text-muted-foreground">Amount</p>
+                    <p className="font-medium">{formatCurrency(payment.amount)}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Date</p>
+                    <p className="font-medium">{format(new Date(payment.created_at), 'MMM d, yyyy')}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Term</p>
+                    <p className="font-medium">{payment.admission_term || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Year</p>
+                    <p className="font-medium">{payment.admission_year || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Method</p>
+                    <p className="font-medium uppercase text-xs">{payment.method}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Reference</p>
+                    <p className="font-mono text-xs">{payment.reference || '—'}</p>
+                  </div>
+                </div>
+
+                <div className="flex gap-2 pt-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => openStudentModal(payment.student!)}
+                  >
+                    View Student
+                  </Button>
+                  {isAdmin && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setEditingPayment(payment)}
+                    >
+                      <Edit className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Mobile Pagination */}
+        {filteredPayments.length > itemsPerPage && (
+          <div className="md:hidden flex items-center justify-between gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={currentPage === 1}
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              className="flex-1"
+            >
+              Previous
+            </Button>
+            <div className="text-xs text-muted-foreground text-center">
+              {currentPage} / {totalPages}
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={currentPage === totalPages}
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              className="flex-1"
+            >
+              Next
+            </Button>
+          </div>
+        )}
       </div>
 
       <EditPaymentDialog

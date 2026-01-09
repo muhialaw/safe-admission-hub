@@ -51,7 +51,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       {/* Mobile sidebar backdrop */}
       {sidebarOpen && (
         <div 
-          className="fixed inset-0 z-40 bg-foreground/20 lg:hidden"
+          className="fixed inset-0 z-40 bg-foreground/20 sm:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
@@ -59,8 +59,8 @@ export function AppLayout({ children }: AppLayoutProps) {
       {/* Sidebar */}
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 w-64 transform border-r-2 border-border bg-card transition-transform duration-200 lg:translate-x-0",
-          sidebarOpen ? "translate-x-0" : "-translate-x-full"
+          "fixed inset-y-0 left-0 z-50 w-full sm:w-64 transform border-r-2 border-border bg-card transition-transform duration-200 sm:translate-x-0",
+          sidebarOpen ? "translate-x-0" : "-translate-x-full sm:translate-x-0"
         )}
       >
         <div className="flex h-full flex-col">
@@ -71,7 +71,7 @@ export function AppLayout({ children }: AppLayoutProps) {
               <span className="text-xl font-bold tracking-tight">SHULE POS</span>
             </Link>
             <button
-              className="lg:hidden"
+              className="sm:hidden"
               onClick={() => setSidebarOpen(false)}
             >
               <X className="h-6 w-6" />
@@ -122,9 +122,9 @@ export function AppLayout({ children }: AppLayoutProps) {
       </aside>
 
       {/* Main content */}
-      <div className="lg:pl-64">
+      <div className="sm:pl-64">
         {/* Mobile header */}
-        <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b-2 border-border bg-card px-4 lg:hidden">
+        <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b-2 border-border bg-card px-4 sm:hidden">
           <button onClick={() => setSidebarOpen(true)}>
             <Menu className="h-6 w-6" />
           </button>

@@ -12,11 +12,14 @@ import {
   isOnline,
   OfflineStudent,
   OfflinePayment,
+  OfflineAdmission,
+  markAdmissionSynced,
+  markAdmissionFailed,
 } from '@/lib/offline-db';
 import { toast } from 'sonner';
 
 export function useOfflineSync() {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const [pendingCount, setPendingCount] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
@@ -51,6 +54,44 @@ export function useOfflineSync() {
       window.removeEventListener('offline', handleOffline);
     };
   }, [updatePendingCount]);
+
+  // Sync a single admission
+  const syncAdmission = async (admission: OfflineAdmission): Promise<boolean> => {
+    try {
+      const { data: student, error: studentError } = await supabase
+        .from('students')
+        .insert({
+          student_id: '',
+          name: admission.name,
+          dob: admission.dob,
+          grade_id: admission.gradeId,
+          admission_term: admission.admissionTerm,
+          admission_year: admission.admissionYear,
+        })
+        .select()
+        .single();
+
+      if (studentError) throw studentError;
+
+      // Add guardian if exists
+      if (admission.guardianName && student) {
+        await supabase.from('guardians').insert({
+          student_id: student.id,
+          name: admission.guardianName,
+          phone: admission.guardianPhone,
+          area: admission.guardianArea,
+          is_emergency: true,
+        });
+      }
+
+      await markAdmissionSynced(admission.localId, student.id, student.student_id);
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      await markAdmissionFailed(admission.localId, message);
+      return false;
+    }
+  };
 
   // Sync a single student
   const syncStudent = async (student: OfflineStudent): Promise<boolean> => {
@@ -95,15 +136,45 @@ export function useOfflineSync() {
     if (!user) return false;
 
     try {
+      // Resolve student ID from input (could be student_id, student name, or actual UUID)
+      let studentId = payment.studentId;
+      
+      // If studentId looks like a UUID, use it directly. Otherwise, search for student
+      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(payment.studentId);
+      
+      if (!isUUID) {
+        // Search by student_id or name
+        const { data: students } = await supabase
+          .from('students')
+          .select('id, student_id, name')
+          .or(`student_id.eq.${payment.studentId}, name.ilike.%${payment.studentId}%`)
+          .limit(1);
+        
+        if (!students || students.length === 0) {
+          throw new Error(`Student not found: ${payment.studentId}`);
+        }
+        
+        studentId = students[0].id;
+      }
+
+      // Map offline method names to database format
+      let dbMethod = payment.method;
+      if (payment.method === 'mobile') {
+        dbMethod = 'mpesa';
+      }
+
+      // Respect role: admin syncs as completed, others remain pending for review
       const { data, error } = await supabase
         .from('payments')
         .insert({
-          student_id: payment.studentId,
+          student_id: studentId,
           amount: payment.amount,
-          method: payment.method,
+          method: dbMethod,
           reference: payment.reference,
           entered_by: user.id,
-          status: 'completed',
+          status: isAdmin ? 'completed' : 'pending',
+          admission_term: payment.term,
+          admission_year: payment.year,
         })
         .select()
         .single();
@@ -126,9 +197,16 @@ export function useOfflineSync() {
     setIsSyncing(true);
     
     try {
-      const { students, payments } = await getPendingItems();
+      const { admissions, students, payments } = await getPendingItems();
       let syncedCount = 0;
       let failedCount = 0;
+
+      // Sync admissions
+      for (const admission of admissions) {
+        const success = await syncAdmission(admission);
+        if (success) syncedCount++;
+        else failedCount++;
+      }
 
       // Sync students
       for (const student of students) {
@@ -156,6 +234,21 @@ export function useOfflineSync() {
       setIsSyncing(false);
     }
   }, [user, isSyncing, updatePendingCount]);
+
+  // Add offline admission
+  const addOfflineAdmission = async (admission: Omit<OfflineAdmission, 'id' | 'syncStatus' | 'createdAt'>) => {
+    await offlineDb.admissions.add({
+      ...admission,
+      syncStatus: 'pending',
+      createdAt: new Date().toISOString(),
+    });
+    await updatePendingCount();
+    
+    // Try to sync immediately if online
+    if (isOnline()) {
+      syncAll();
+    }
+  };
 
   // Add offline student
   const addOfflineStudent = async (student: Omit<OfflineStudent, 'id' | 'syncStatus' | 'createdAt'>) => {
@@ -192,6 +285,7 @@ export function useOfflineSync() {
     isSyncing,
     isOffline,
     syncAll,
+    addOfflineAdmission,
     addOfflineStudent,
     addOfflinePayment,
     updatePendingCount,

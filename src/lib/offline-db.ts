@@ -1,5 +1,23 @@
 import Dexie, { Table } from 'dexie';
 
+export interface OfflineAdmission {
+  id?: number;
+  localId: string;
+  name: string;
+  dob: string | null;
+  gradeId: string | null;
+  admissionTerm: string;
+  admissionYear: number;
+  guardianName: string | null;
+  guardianPhone: string | null;
+  guardianArea: string | null;
+  syncStatus: 'pending' | 'synced' | 'failed';
+  createdAt: string;
+  syncedId?: string; // Server ID after sync
+  syncedStudentId?: string; // Server-assigned student_id after sync
+  errorMessage?: string;
+}
+
 export interface OfflineStudent {
   id?: number;
   localId: string;
@@ -20,11 +38,13 @@ export interface OfflineStudent {
 export interface OfflinePayment {
   id?: number;
   localId: string;
-  studentId: string;
+  studentId: string; // Can be server ID or manual entry (offline)
   studentName: string;
   amount: number;
-  method: 'mpesa' | 'bank' | 'cash';
+  method: 'cash' | 'mobile' | 'bank';
   reference: string | null;
+  term: string;
+  year: number;
   syncStatus: 'pending' | 'synced' | 'failed';
   createdAt: string;
   syncedId?: string;
@@ -42,6 +62,7 @@ export interface SyncQueueItem {
 }
 
 class ShuleOfflineDB extends Dexie {
+  admissions!: Table<OfflineAdmission>;
   students!: Table<OfflineStudent>;
   payments!: Table<OfflinePayment>;
   syncQueue!: Table<SyncQueueItem>;
@@ -50,6 +71,7 @@ class ShuleOfflineDB extends Dexie {
     super('ShulePOS');
     
     this.version(1).stores({
+      admissions: '++id, localId, syncStatus, createdAt',
       students: '++id, localId, syncStatus, createdAt',
       payments: '++id, localId, studentId, syncStatus, createdAt',
       syncQueue: '++id, type, localId, status',
@@ -71,6 +93,11 @@ export function isOnline(): boolean {
 
 // Get pending sync count
 export async function getPendingSyncCount(): Promise<number> {
+  const pendingAdmissions = await offlineDb.admissions
+    .where('syncStatus')
+    .equals('pending')
+    .count();
+
   const pendingStudents = await offlineDb.students
     .where('syncStatus')
     .equals('pending')
@@ -81,11 +108,16 @@ export async function getPendingSyncCount(): Promise<number> {
     .equals('pending')
     .count();
   
-  return pendingStudents + pendingPayments;
+  return pendingAdmissions + pendingStudents + pendingPayments;
 }
 
 // Get all pending items
 export async function getPendingItems() {
+  const admissions = await offlineDb.admissions
+    .where('syncStatus')
+    .equals('pending')
+    .toArray();
+
   const students = await offlineDb.students
     .where('syncStatus')
     .equals('pending')
@@ -96,7 +128,7 @@ export async function getPendingItems() {
     .equals('pending')
     .toArray();
   
-  return { students, payments };
+  return { admissions, students, payments };
 }
 
 // Mark item as synced
@@ -105,6 +137,20 @@ export async function markStudentSynced(localId: string, serverId: string) {
     .where('localId')
     .equals(localId)
     .modify({ syncStatus: 'synced', syncedId: serverId });
+}
+
+export async function markAdmissionSynced(localId: string, serverId: string, syncedStudentId: string) {
+  await offlineDb.admissions
+    .where('localId')
+    .equals(localId)
+    .modify({ syncStatus: 'synced', syncedId: serverId, syncedStudentId });
+}
+
+export async function markAdmissionFailed(localId: string, errorMessage: string) {
+  await offlineDb.admissions
+    .where('localId')
+    .equals(localId)
+    .modify({ syncStatus: 'failed', errorMessage });
 }
 
 export async function markPaymentSynced(localId: string, serverId: string) {

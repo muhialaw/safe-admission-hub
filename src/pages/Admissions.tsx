@@ -45,7 +45,7 @@ export default function Admissions() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [currentStep, setCurrentStep] = useState(0);
-  const { addOfflineStudent, isOffline } = useOfflineSync();
+  const { addOfflineAdmission, isOffline } = useOfflineSync();
   
   // Form state
   const [formData, setFormData] = useState<AdmissionFormData>({
@@ -73,11 +73,16 @@ export default function Admissions() {
 
   const fetchData = async () => {
     try {
+      // Calculate 7 days ago
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
       const [studentsRes, gradesRes] = await Promise.all([
         supabase
           .from('students')
           .select('*, grade:grades(*)')
           .eq('is_deleted', false)
+          .gte('created_at', sevenDaysAgo.toISOString())
           .order('created_at', { ascending: false })
           .limit(50),
         supabase
@@ -151,7 +156,7 @@ export default function Admissions() {
     // If offline, save locally
     if (!isOnline()) {
       try {
-        await addOfflineStudent({
+        await addOfflineAdmission({
           localId: generateLocalId(),
           name: formData.name,
           dob: formData.dob || null,

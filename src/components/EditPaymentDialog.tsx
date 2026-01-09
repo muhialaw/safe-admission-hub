@@ -163,7 +163,7 @@ export function EditPaymentDialog({
                 id="amount"
                 type="text"
                 inputMode="decimal"
-                placeholder={String(payment.amount)}
+                placeholder=""
                 value={formData.amount}
                 onChange={(e) => {
                   const cleaned = e.target.value.replace(/[^0-9.-]/g, '');
@@ -171,6 +171,7 @@ export function EditPaymentDialog({
                 }}
                 required
               />
+              <p className="text-xs text-muted-foreground">Original: {formatCurrency(payment.amount)}</p>
             </div>
 
             <div className="space-y-2">

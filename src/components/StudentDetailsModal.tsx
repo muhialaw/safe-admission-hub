@@ -124,26 +124,32 @@ export function StudentDetailsModal({ student, payments, gradeTerms, grades, ope
                   <p className="font-medium">No payments yet</p>
                 ) : (
                   <div>
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="text-left text-muted-foreground">
-                          <th>Date</th>
-                          <th>Amount</th>
-                          <th>Term</th>
-                          <th>Method</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {paginated.map(p => (
-                          <tr key={p.id} className="border-t">
-                            <td className="py-2">{format(new Date(p.created_at), 'MMM d, yyyy')}</td>
-                            <td className="py-2">{formatCurrency(Math.round(p.amount))}</td>
-                            <td className="py-2">{p.admission_term} {p.admission_year}</td>
-                            <td className="py-2">{p.method}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                    <div className="space-y-2">
+                      {paginated.map(p => {
+                        // compute amount still due for this term
+                        const termPayments = studentPayments.filter(sp => sp.admission_term === p.admission_term && sp.admission_year === p.admission_year);
+                        const totalPaidForTerm = termPayments.reduce((s, sp) => s + (sp.amount || 0), 0);
+                        const gradeTerm = gradeTerms.find(gt => gt.grade_id === student?.grade_id && gt.term_name === p.admission_term && gt.academic_year === p.admission_year);
+                        const fee = gradeTerm ? Number(gradeTerm.fee_amount) : grades.find(g => g.id === student?.grade_id)?.fee_per_term;
+                        const remaining = fee ? fee - totalPaidForTerm : 0;
+                        return (
+                          <div key={p.id} className="border rounded p-2 text-sm">
+                            <div className="flex justify-between">
+                              <div>
+                                <p className="font-medium">{formatCurrency(Math.round(p.amount))}</p>
+                                <p className="text-xs text-muted-foreground">{p.admission_term} {p.admission_year} • {p.method.toUpperCase()}</p>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-xs text-muted-foreground">{format(new Date(p.created_at), 'MMM d')}</p>
+                                <p className={`text-xs font-medium ${remaining > 0 ? 'text-destructive' : 'text-chart-2'}`}>
+                                  {remaining > 0 ? `-KSh ${Math.round(remaining)}` : 'Paid'}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
 
                     <div className="flex items-center justify-between mt-3">
                       <div className="text-sm text-muted-foreground">Page {page} of {totalPages}</div>
