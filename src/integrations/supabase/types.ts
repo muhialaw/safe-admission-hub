@@ -77,6 +77,50 @@ export type Database = {
         }
         Relationships: []
       }
+      grade_terms: {
+        Row: {
+          academic_year: number
+          created_at: string
+          fee_amount: number
+          grade_id: string
+          id: string
+          is_active: boolean
+          term_name: string
+          term_order: number
+          updated_at: string
+        }
+        Insert: {
+          academic_year: number
+          created_at?: string
+          fee_amount: number
+          grade_id: string
+          id?: string
+          is_active?: boolean
+          term_name: string
+          term_order: number
+          updated_at?: string
+        }
+        Update: {
+          academic_year?: number
+          created_at?: string
+          fee_amount?: number
+          grade_id?: string
+          id?: string
+          is_active?: boolean
+          term_name?: string
+          term_order?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "grade_terms_grade_id_fkey"
+            columns: ["grade_id"]
+            isOneToOne: false
+            referencedRelation: "grades"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       guardians: {
         Row: {
           area: string | null
@@ -117,34 +161,52 @@ export type Database = {
       }
       payments: {
         Row: {
+          admission_term: string
+          admission_year: number
           amount: number
           created_at: string
+          edit_reason: string | null
+          edited_at: string | null
+          edited_by: string | null
           entered_by: string
           id: string
           method: string
           reference: string | null
           status: string
           student_id: string
+          updated_at: string
         }
         Insert: {
+          admission_term?: string
+          admission_year?: number
           amount: number
           created_at?: string
+          edit_reason?: string | null
+          edited_at?: string | null
+          edited_by?: string | null
           entered_by: string
           id?: string
           method: string
           reference?: string | null
           status?: string
           student_id: string
+          updated_at?: string
         }
         Update: {
+          admission_term?: string
+          admission_year?: number
           amount?: number
           created_at?: string
+          edit_reason?: string | null
+          edited_at?: string | null
+          edited_by?: string | null
           entered_by?: string
           id?: string
           method?: string
           reference?: string | null
           status?: string
           student_id?: string
+          updated_at?: string
         }
         Relationships: [
           {

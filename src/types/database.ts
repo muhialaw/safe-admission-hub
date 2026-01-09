@@ -56,12 +56,30 @@ export interface Payment {
   id: string;
   student_id: string;
   amount: number;
-  method: 'mpesa' | 'bank' | 'manual';
+  method: 'mpesa' | 'bank' | 'cash';
   reference: string | null;
+  admission_term: string;
+  admission_year: number;
   entered_by: string;
+  edited_by: string | null;
+  edited_at: string | null;
+  edit_reason: string | null;
   status: 'pending' | 'completed' | 'failed';
   created_at: string;
+  updated_at: string;
   student?: Student;
+}
+
+export interface GradeTerm {
+  id: string;
+  grade_id: string;
+  term_name: string;
+  term_order: number;
+  fee_amount: number;
+  academic_year: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface AuditLog {

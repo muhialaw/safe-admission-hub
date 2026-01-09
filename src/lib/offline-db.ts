@@ -23,7 +23,7 @@ export interface OfflinePayment {
   studentId: string;
   studentName: string;
   amount: number;
-  method: 'mpesa' | 'bank' | 'manual';
+  method: 'mpesa' | 'bank' | 'cash';
   reference: string | null;
   syncStatus: 'pending' | 'synced' | 'failed';
   createdAt: string;
