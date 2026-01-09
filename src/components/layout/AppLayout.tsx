@@ -10,7 +10,8 @@ import {
   Menu,
   X,
   GraduationCap,
-  ShieldCheck
+  ShieldCheck,
+  Clock
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
@@ -26,6 +27,7 @@ const navigation = [
   { name: 'Admissions', href: '/admissions', icon: UserPlus },
   { name: 'Students', href: '/students', icon: Users },
   { name: 'Payments', href: '/payments', icon: CreditCard },
+  { name: 'Pending Sync', href: '/pending-sync', icon: Clock },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
 

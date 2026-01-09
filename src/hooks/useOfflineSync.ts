@@ -11,8 +11,8 @@ import {
   markPaymentFailed,
   isOnline,
   OfflineStudent,
-  OfflinePayment,
   OfflineAdmission,
+  OfflinePayment,
   markAdmissionSynced,
   markAdmissionFailed,
 } from '@/lib/offline-db';
@@ -35,7 +35,6 @@ export function useOfflineSync() {
     const handleOnline = () => {
       setIsOffline(false);
       toast.success('Back online! Syncing data...');
-      syncAll();
     };
 
     const handleOffline = () => {
@@ -158,7 +157,7 @@ export function useOfflineSync() {
       }
 
       // Map offline method names to database format
-      let dbMethod = payment.method;
+      let dbMethod: string = payment.method;
       if (payment.method === 'mobile') {
         dbMethod = 'mpesa';
       }
@@ -233,7 +232,8 @@ export function useOfflineSync() {
     } finally {
       setIsSyncing(false);
     }
-  }, [user, isSyncing, updatePendingCount]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSyncing, user, updatePendingCount]);
 
   // Add offline admission
   const addOfflineAdmission = async (admission: Omit<OfflineAdmission, 'id' | 'syncStatus' | 'createdAt'>) => {

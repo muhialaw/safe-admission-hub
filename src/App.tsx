@@ -12,6 +12,7 @@ import Students from "./pages/Students";
 import Payments from "./pages/Payments";
 import Settings from "./pages/Settings";
 import Admin from "./pages/Admin";
+import PendingSync from "./pages/PendingSync";
 import NotFound from "./pages/NotFound";
 
 // Admin Pages
@@ -85,6 +86,14 @@ const App = () => (
               element={
                 <ProtectedRoute>
                   <Settings />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/pending-sync"
+              element={
+                <ProtectedRoute>
+                  <PendingSync />
                 </ProtectedRoute>
               }
             />
