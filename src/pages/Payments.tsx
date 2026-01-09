@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Loader2, Plus, Search } from 'lucide-react';
+import { Loader2, Plus, Search, WifiOff } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,6 +11,8 @@ import { Student, Payment } from '@/types/database';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
+import { useOfflineSync } from '@/hooks/useOfflineSync';
+import { generateLocalId, isOnline } from '@/lib/offline-db';
 
 export default function Payments() {
   const { user } = useAuth();
@@ -20,6 +22,7 @@ export default function Payments() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const { addOfflinePayment, isOffline } = useOfflineSync();
 
   // Form state
   const [formData, setFormData] = useState({
@@ -28,6 +31,9 @@ export default function Payments() {
     method: 'manual',
     reference: '',
   });
+
+  // Track selected student name for offline
+  const [selectedStudentName, setSelectedStudentName] = useState('');
 
   useEffect(() => {
     fetchData();
@@ -57,11 +63,47 @@ export default function Payments() {
     }
   };
 
+  const handleStudentSelect = (studentId: string) => {
+    const student = students.find(s => s.id === studentId);
+    setFormData({ ...formData, studentId });
+    setSelectedStudentName(student?.name || '');
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
     
     setIsSubmitting(true);
+
+    // If offline, save locally (note: STK push won't work offline)
+    if (!isOnline()) {
+      if (formData.method !== 'manual') {
+        toast.error('M-Pesa and Bank payments require an internet connection');
+        setIsSubmitting(false);
+        return;
+      }
+
+      try {
+        await addOfflinePayment({
+          localId: generateLocalId(),
+          studentId: formData.studentId,
+          studentName: selectedStudentName,
+          amount: parseFloat(formData.amount),
+          method: formData.method as 'manual',
+          reference: formData.reference || null,
+        });
+
+        toast.success('Payment saved offline. Will sync when online.');
+        setIsDialogOpen(false);
+        resetForm();
+      } catch (error) {
+        console.error('Error saving offline:', error);
+        toast.error('Failed to save offline');
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
 
     try {
       const { error } = await supabase
@@ -79,12 +121,7 @@ export default function Payments() {
 
       toast.success('Payment recorded successfully');
       setIsDialogOpen(false);
-      setFormData({
-        studentId: '',
-        amount: '',
-        method: 'manual',
-        reference: '',
-      });
+      resetForm();
       fetchData();
     } catch (error) {
       console.error('Error recording payment:', error);
@@ -92,6 +129,16 @@ export default function Payments() {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const resetForm = () => {
+    setFormData({
+      studentId: '',
+      amount: '',
+      method: 'manual',
+      reference: '',
+    });
+    setSelectedStudentName('');
   };
 
   const filteredPayments = payments.filter(payment =>
@@ -115,7 +162,15 @@ export default function Payments() {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Payments</h1>
-            <p className="text-muted-foreground">Record and track fee payments</p>
+            <p className="text-muted-foreground">
+              Record and track fee payments
+              {isOffline && (
+                <span className="ml-2 inline-flex items-center gap-1 text-destructive">
+                  <WifiOff className="h-3 w-3" />
+                  Offline (Manual only)
+                </span>
+              )}
+            </p>
           </div>
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
@@ -126,14 +181,21 @@ export default function Payments() {
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Record New Payment</DialogTitle>
+                <DialogTitle>
+                  Record New Payment
+                  {isOffline && (
+                    <span className="ml-2 text-sm font-normal text-destructive">
+                      (Offline - Manual Only)
+                    </span>
+                  )}
+                </DialogTitle>
               </DialogHeader>
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="student">Student *</Label>
                   <Select
                     value={formData.studentId}
-                    onValueChange={(value) => setFormData({ ...formData, studentId: value })}
+                    onValueChange={handleStudentSelect}
                     required
                   >
                     <SelectTrigger className="border-2">
@@ -166,16 +228,22 @@ export default function Payments() {
                   <Select
                     value={formData.method}
                     onValueChange={(value) => setFormData({ ...formData, method: value })}
+                    disabled={isOffline}
                   >
                     <SelectTrigger className="border-2">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="mpesa">M-Pesa</SelectItem>
-                      <SelectItem value="bank">Bank Transfer</SelectItem>
+                      <SelectItem value="mpesa" disabled={isOffline}>M-Pesa</SelectItem>
+                      <SelectItem value="bank" disabled={isOffline}>Bank Transfer</SelectItem>
                       <SelectItem value="manual">Cash/Other</SelectItem>
                     </SelectContent>
                   </Select>
+                  {isOffline && (
+                    <p className="text-xs text-muted-foreground">
+                      Only manual payments available offline
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="reference">Reference/Transaction ID</Label>
@@ -202,6 +270,8 @@ export default function Payments() {
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                         Saving...
                       </>
+                    ) : isOffline ? (
+                      'Save Offline'
                     ) : (
                       'Record Payment'
                     )}
