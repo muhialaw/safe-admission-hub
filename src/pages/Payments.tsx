@@ -56,6 +56,10 @@ export default function Payments() {
   const [selectedStudentName, setSelectedStudentName] = useState('');
   const [manualGradeInput, setManualGradeInput] = useState('');
 
+  // M-Pesa STK state
+  const [mpesaStkPhone, setMpesaStkPhone] = useState('');
+  const [mpesaStkLoading, setMpesaStkLoading] = useState(false);
+
   // Payment list search and pagination
   const [searchStudent, setSearchStudent] = useState('');
   const [searchAmount, setSearchAmount] = useState('');
@@ -185,8 +189,15 @@ export default function Payments() {
       return;
     }
 
+    // M-Pesa STK is not yet available in v1
+    if (formData.method === 'mpesa_stk') {
+      toast.info('This payment method will be available upon system v2 implementation');
+      setIsSubmitting(false);
+      return;
+    }
+
     // If mpesa or bank require reference
-    if ((formData.method === 'mobile' || formData.method === 'bank') && !formData.reference.trim()) {
+    if ((formData.method === 'mpesa' || formData.method === 'bank') && !formData.reference.trim()) {
       toast.error('Transaction ID/Reference is required for Mobile Money and Bank transfers');
       setIsSubmitting(false);
       return;
@@ -195,7 +206,7 @@ export default function Payments() {
     // If offline, save locally without complex validation (note: STK push won't work offline)
     if (!isOnline()) {
       if (formData.method !== 'cash') {
-        toast.error('Mobile Money and Bank payments require an internet connection');
+        toast.error('Mobile Money, M-Pesa STK, and Bank payments require an internet connection');
         setIsSubmitting(false);
         return;
       }
@@ -349,6 +360,23 @@ export default function Payments() {
     });
     setSelectedStudentName('');
     setManualGradeInput('');
+    setMpesaStkPhone('');
+  };
+
+  const handleMpesaStkSend = async () => {
+    // Validate phone number
+    if (!mpesaStkPhone.trim()) {
+      toast.error('Enter a phone number');
+      return;
+    }
+
+    setMpesaStkLoading(true);
+    // Simulate STK push loading
+    setTimeout(() => {
+      setMpesaStkLoading(false);
+      toast.info('This payment method will be available upon system v2 implementation');
+      setMpesaStkPhone('');
+    }, 2000);
   };
 
   // Filter payments by search criteria
@@ -674,7 +702,8 @@ export default function Payments() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="cash">Cash/Other</SelectItem>
-                      <SelectItem value="mobile">Mobile Money</SelectItem>
+                      <SelectItem value="mpesa">Mobile Money</SelectItem>
+                      <SelectItem value="mpesa_stk">M-Pesa STK</SelectItem>
                       <SelectItem value="bank">Bank Transfer</SelectItem>
                     </SelectContent>
                   </Select>
@@ -684,21 +713,58 @@ export default function Payments() {
                     </p>
                   )}
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="reference">Reference/Transaction ID</Label>
-                  <Input
-                    id="reference"
-                    value={formData.reference}
-                    onChange={(e) => setFormData({ ...formData, reference: e.target.value })}
-                    className="border-2"
-                    placeholder={formData.method === 'cash' ? '(Optional)' : 'e.g., QXK2J4N8YP (Required)'}
-                  />
-                  {formData.method !== 'cash' && !formData.reference && (
-                    <p className="text-xs text-destructive">
-                      Transaction ID is required for Mobile Money and Bank transfers
+
+                {formData.method === 'mpesa_stk' && (
+                  <div className="space-y-2 p-4 border-2 border-blue-300 rounded-lg bg-blue-50">
+                    <Label htmlFor="mpesaStkPhone">Phone Number for STK Push</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="mpesaStkPhone"
+                        placeholder="e.g., 254712345678"
+                        value={mpesaStkPhone}
+                        onChange={(e) => setMpesaStkPhone(e.target.value)}
+                        className="border-2 flex-1"
+                        disabled={mpesaStkLoading}
+                      />
+                      <Button
+                        type="button"
+                        onClick={handleMpesaStkSend}
+                        disabled={mpesaStkLoading || !mpesaStkPhone.trim()}
+                        className="whitespace-nowrap"
+                      >
+                        {mpesaStkLoading ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Sending...
+                          </>
+                        ) : (
+                          'Send STK'
+                        )}
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Enter the customer's phone number and press Send STK to initiate the payment
                     </p>
-                  )}
-                </div>
+                  </div>
+                )}
+
+                {formData.method !== 'mpesa_stk' && (
+                  <div className="space-y-2">
+                    <Label htmlFor="reference">Reference/Transaction ID</Label>
+                    <Input
+                      id="reference"
+                      value={formData.reference}
+                      onChange={(e) => setFormData({ ...formData, reference: e.target.value })}
+                      className="border-2"
+                      placeholder={formData.method === 'cash' ? '(Optional)' : 'e.g., QXK2J4N8YP (Required)'}
+                    />
+                    {formData.method !== 'cash' && !formData.reference && (
+                      <p className="text-xs text-destructive">
+                        Transaction ID is required for Mobile Money and Bank transfers
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 <div className="flex justify-end gap-2 pt-4">
                   <Button
@@ -708,7 +774,10 @@ export default function Payments() {
                   >
                     Cancel
                   </Button>
-                  <Button type="submit" disabled={isSubmitting}>
+                  <Button 
+                    type="submit" 
+                    disabled={isSubmitting || formData.method === 'mpesa_stk'}
+                  >
                     {isSubmitting ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -721,6 +790,13 @@ export default function Payments() {
                     )}
                   </Button>
                 </div>
+                {formData.method === 'mpesa_stk' && (
+                  <div className="mt-2 p-3 bg-destructive/10 border border-destructive rounded-lg">
+                    <p className="text-sm text-destructive font-medium">
+                      Cannot record payment with STK until system v2 implementation
+                    </p>
+                  </div>
+                )}
                 </form>
               </div>
             </DialogContent>

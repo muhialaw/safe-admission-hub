@@ -56,7 +56,7 @@ export interface Payment {
   id: string;
   student_id: string;
   amount: number;
-  method: 'mpesa' | 'bank' | 'cash';
+  method: 'mpesa' | 'mpesa_stk' | 'bank' | 'cash';
   reference: string | null;
   admission_term: string;
   admission_year: number;
